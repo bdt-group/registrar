@@ -1,0 +1,18 @@
+{application, registrar,
+ [{description, "A collection of via-like registrars"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {registrar, []}},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[]},
+  {modules, []},
+  {links, []}
+ ]}.
+
+%% Local Variables:
+%% mode: erlang
+%% End:
+%% vim: set filetype=erlang tabstop=8:
