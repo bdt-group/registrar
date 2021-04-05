@@ -1,5 +1,7 @@
 # registrar
 
+[![Build Status](https://travis-ci.com/bdt-group/registrar.svg?branch=main)](https://travis-ci.com/bdt-group/registrar)
+
 A collection of global-like process registries
 
 ## Overview
