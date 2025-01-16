@@ -78,7 +78,7 @@ register_name(Name0, Pid) ->
         yes -> yes;
         no ->
             %% whereis_name/1 will trigger read-repair if needed
-            case whereis_name(Name) of
+            case whereis_name(Name0) of
                 undefined ->
                     insert_new(Registrar, Name, Pid);
                 _ ->
