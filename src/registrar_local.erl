@@ -24,13 +24,13 @@
 -behaviour(gen_server).
 
 %% API
--export([start/0, start/1]).
+-export([start/0, start/1, start/2]).
 -export([stop/0]).
 -export([start_link/1]).
--export([register_name/2]).
--export([unregister_name/1]).
--export([whereis_name/1]).
--export([send/2]).
+-export([register_name/2, register_name/3]).
+-export([unregister_name/1, unregister_name/2]).
+-export([whereis_name/1, whereis_name/2]).
+-export([send/2, send/3]).
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -38,21 +38,29 @@
 -include_lib("kernel/include/logger.hrl").
 
 -record(state, {clean_interval :: millisecs(),
-                clean_time :: millisecs()}).
+                clean_time :: millisecs(),
+                name :: registrar_name()}).
 -type state() :: #state{}.
 -type options() :: #{clean_interval => millisecs()}.
 -type millisecs() :: non_neg_integer().
+-type registrar_name() :: atom().
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 -spec start() -> ok | {error, term()}.
 start() ->
-    start(#{}).
+    start(?MODULE, #{}).
 
--spec start(options()) -> ok | {error, term()}.
+-spec start(options() | registrar_name()) -> ok | {error, term()}.
+start(Registrar) when is_atom(Registrar) ->
+    start(Registrar, #{});
 start(Opts) ->
-    registrar_sup:start_child(?MODULE, [Opts]).
+    start(?MODULE, Opts).
+
+-spec start(registrar_name(), options()) -> ok | {error, term()}.
+start(Registrar, Opts) ->
+    registrar_sup:start_child(Registrar, ?MODULE, [Opts#{name => Registrar}]).
 
 -spec stop() -> ok.
 stop() ->
@@ -60,18 +68,22 @@ stop() ->
 
 -spec start_link(options()) -> {ok, pid()} | {error, term()}.
 start_link(Opts) ->
-    Name = maps:get(name, Opts, ?MODULE),
-    gen_server:start_link({local, Name}, ?MODULE, Opts, []).
+    Registrar = maps:get(name, Opts, ?MODULE),
+    gen_server:start_link({local, Registrar}, ?MODULE, Opts, []).
 
 -spec register_name(term(), pid()) -> yes | no.
 register_name(Name, Pid) ->
-    case insert_new(Name, Pid) of
+    register_name(?MODULE, Name, Pid).
+
+-spec register_name(registrar_name(), term(), pid()) -> yes | no.
+register_name(Registrar, Name, Pid) ->
+    case insert_new(Registrar, Name, Pid) of
         yes -> yes;
         no ->
             %% whereis_name/1 will trigger read-repair if needed
             case whereis_name(Name) of
                 undefined ->
-                    insert_new(Name, Pid);
+                    insert_new(Registrar, Name, Pid);
                 _ ->
                     no
             end
@@ -79,18 +91,26 @@ register_name(Name, Pid) ->
 
 -spec unregister_name(term()) -> ok.
 unregister_name(Name) ->
-    _ = ets:delete(?MODULE, Name),
+    unregister_name(?MODULE, Name).
+
+-spec unregister_name(registrar_name(), term()) -> ok.
+unregister_name(Registrar, Name) ->
+    _ = ets:delete(Registrar, Name),
     ok.
 
 -spec whereis_name(term()) -> pid() | undefined.
 whereis_name(Name) ->
-    case ets:lookup(?MODULE, Name) of
+    whereis_name(?MODULE, Name).
+
+-spec whereis_name(registrar_name(), term()) -> pid() | undefined.
+whereis_name(Registrar, Name) ->
+    case ets:lookup(Registrar, Name) of
         [{_, Pid} = Obj] ->
             %% Read-Repair
             case is_process_alive(Pid) of
                 true -> Pid;
                 false ->
-                    ets:delete_object(?MODULE, Obj),
+                    ets:delete_object(Registrar, Obj),
                     undefined
             end;
         [] ->
@@ -99,7 +119,11 @@ whereis_name(Name) ->
 
 -spec send(term(), term()) -> pid().
 send(Name, Msg) ->
-    case whereis_name(Name) of
+    send(?MODULE, Name, Msg).
+
+-spec send(registrar_name(), term(), term()) -> pid().
+send(Registrar, Name, Msg) ->
+    case whereis_name(Registrar, Name) of
         undefined ->
             erlang:error({badarg, {Name, Msg}});
         Pid ->
@@ -113,13 +137,17 @@ send(Name, Msg) ->
 -spec init(options()) -> {ok, state(), millisecs()}.
 init(Opts) ->
     process_flag(trap_exit, true),
-    _ = ets:new(?MODULE, [public, named_table,
-                          {read_concurrency, true},
-                          {write_concurrency, true}]),
+    Registrar = maps:get(name, Opts, ?MODULE),
+    _ = ets:new(Registrar, [public, named_table,
+                            {read_concurrency, true},
+                            {write_concurrency, true}]),
     CleanInterval = maps:get(clean_interval, Opts, timer:minutes(1)),
     CleanTime = clean_time(CleanInterval),
-    State = #state{clean_interval = CleanInterval,
-                   clean_time = CleanTime},
+    State = #state{
+        clean_interval = CleanInterval,
+        clean_time = CleanTime,
+        name = Registrar
+    },
     {ok, State, timeout(CleanTime)}.
 
 -spec handle_call(term(), {pid(), term()}, state()) ->
@@ -134,18 +162,18 @@ handle_cast(Msg, State) ->
     noreply(State).
 
 -spec handle_info(term(), state()) -> {noreply, state(), millisecs()}.
-handle_info(timeout, State) ->
-    ?LOG_DEBUG("Cleaning ~s table from dead processes", [?MODULE]),
+handle_info(timeout, #state{name = Registrar} = State) ->
+    ?LOG_DEBUG("Cleaning ~s table from dead processes", [Registrar]),
     DeadObjs = ets:foldl(
                  fun({_, Pid} = Obj, Acc) ->
                          case is_process_alive(Pid) of
                              true -> Acc;
                              false -> [Obj|Acc]
                          end
-                 end, [], ?MODULE),
+                 end, [], Registrar),
     lists:foreach(
       fun(Obj) ->
-              ets:delete_object(?MODULE, Obj)
+              ets:delete_object(Registrar, Obj)
       end, DeadObjs),
     CleanInterval = State#state.clean_interval,
     State1 = State#state{clean_time = clean_time(CleanInterval)},
@@ -165,9 +193,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
--spec insert_new(term(), pid()) -> yes | no.
-insert_new(Name, Pid) ->
-    case ets:insert_new(?MODULE, {Name, Pid}) of
+-spec insert_new(registrar_name(), term(), pid()) -> yes | no.
+insert_new(Registrar, Name, Pid) ->
+    case ets:insert_new(Registrar, {Name, Pid}) of
         true -> yes;
         false -> no
     end.
