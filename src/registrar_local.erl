@@ -60,7 +60,8 @@ stop() ->
 
 -spec start_link(options()) -> {ok, pid()} | {error, term()}.
 start_link(Opts) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Opts, []).
+    Name = maps:get(name, Opts, ?MODULE),
+    gen_server:start_link({local, Name}, ?MODULE, Opts, []).
 
 -spec register_name(term(), pid()) -> yes | no.
 register_name(Name, Pid) ->
