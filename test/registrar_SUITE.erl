@@ -151,18 +151,18 @@ different_names_case(Config) ->
     Msg = {make_ref(), msg},
     ?assertEqual(ok, Mod:start(registrar1)),
     ?assertEqual(ok, Mod:start(registrar2)),
-    ?assertEqual(yes, Mod:register_name(registrar1, ?FUNCTION_NAME, Self)),
-    ?assertEqual(yes, Mod:register_name(registrar2, ?FUNCTION_NAME, Self)),
-    ?assertEqual(Self, Mod:send(registrar1, ?FUNCTION_NAME, Msg)),
+    ?assertEqual(yes, Mod:register_name({Mod, registrar1, ?FUNCTION_NAME}, Self)),
+    ?assertEqual(yes, Mod:register_name({Mod, registrar2, ?FUNCTION_NAME}, Self)),
+    ?assertEqual(Self, Mod:send({Mod, registrar1, ?FUNCTION_NAME}, Msg)),
     receive
-        Msg -> ?assertEqual(ok, Mod:unregister_name(registrar1, ?FUNCTION_NAME))
+        Msg -> ?assertEqual(ok, Mod:unregister_name({Mod, registrar1, ?FUNCTION_NAME}))
     end,
-    ?assertEqual(undefined, Mod:whereis_name(registrar1, ?FUNCTION_NAME)),
-    ?assertEqual(Self, Mod:send(registrar2, ?FUNCTION_NAME, Msg)),
+    ?assertEqual(undefined, Mod:whereis_name({Mod, registrar1, ?FUNCTION_NAME})),
+    ?assertEqual(Self, Mod:send({Mod, registrar2, ?FUNCTION_NAME}, Msg)),
     receive
-        Msg -> ?assertEqual(ok, Mod:unregister_name(registrar2, ?FUNCTION_NAME))
+        Msg -> ?assertEqual(ok, Mod:unregister_name({Mod, registrar2, ?FUNCTION_NAME}))
     end,
-    ?assertEqual(undefined, Mod:whereis_name(registrar2, ?FUNCTION_NAME)),
+    ?assertEqual(undefined, Mod:whereis_name({Mod, registrar2, ?FUNCTION_NAME})),
     Config.
 
 %%--------------------------------------------------------------------

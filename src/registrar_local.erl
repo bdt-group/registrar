@@ -27,10 +27,10 @@
 -export([start/0, start/1, start/2]).
 -export([stop/0]).
 -export([start_link/1]).
--export([register_name/2, register_name/3]).
--export([unregister_name/1, unregister_name/2]).
--export([whereis_name/1, whereis_name/2]).
--export([send/2, send/3]).
+-export([register_name/2]).
+-export([unregister_name/1]).
+-export([whereis_name/1]).
+-export([send/2]).
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -72,11 +72,8 @@ start_link(Opts) ->
     gen_server:start_link({local, Registrar}, ?MODULE, Opts, []).
 
 -spec register_name(term(), pid()) -> yes | no.
-register_name(Name, Pid) ->
-    register_name(?MODULE, Name, Pid).
-
--spec register_name(registrar_name(), term(), pid()) -> yes | no.
-register_name(Registrar, Name, Pid) ->
+register_name(Name0, Pid) ->
+    {Registrar, Name} = get_registrar(Name0),
     case insert_new(Registrar, Name, Pid) of
         yes -> yes;
         no ->
@@ -90,20 +87,14 @@ register_name(Registrar, Name, Pid) ->
     end.
 
 -spec unregister_name(term()) -> ok.
-unregister_name(Name) ->
-    unregister_name(?MODULE, Name).
-
--spec unregister_name(registrar_name(), term()) -> ok.
-unregister_name(Registrar, Name) ->
+unregister_name(Name0) ->
+    {Registrar, Name} = get_registrar(Name0),
     _ = ets:delete(Registrar, Name),
     ok.
 
 -spec whereis_name(term()) -> pid() | undefined.
-whereis_name(Name) ->
-    whereis_name(?MODULE, Name).
-
--spec whereis_name(registrar_name(), term()) -> pid() | undefined.
-whereis_name(Registrar, Name) ->
+whereis_name(Name0) ->
+    {Registrar, Name} = get_registrar(Name0),
     case ets:lookup(Registrar, Name) of
         [{_, Pid} = Obj] ->
             %% Read-Repair
@@ -119,11 +110,7 @@ whereis_name(Registrar, Name) ->
 
 -spec send(term(), term()) -> pid().
 send(Name, Msg) ->
-    send(?MODULE, Name, Msg).
-
--spec send(registrar_name(), term(), term()) -> pid().
-send(Registrar, Name, Msg) ->
-    case whereis_name(Registrar, Name) of
+    case whereis_name(Name) of
         undefined ->
             erlang:error({badarg, {Name, Msg}});
         Pid ->
@@ -193,6 +180,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+-spec get_registrar(term()) -> {registrar_name(), term()}.
+get_registrar({?MODULE, Registrar, Name}) -> {Registrar, Name};
+get_registrar(Name) -> {?MODULE, Name}.
+
 -spec insert_new(registrar_name(), term(), pid()) -> yes | no.
 insert_new(Registrar, Name, Pid) ->
     case ets:insert_new(Registrar, {Name, Pid}) of
