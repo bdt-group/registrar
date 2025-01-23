@@ -32,6 +32,8 @@ init_per_group(Mod, Config) when Mod == registrar_local;
                                  Mod == registrar_gproc ->
     ?assertEqual(ok, Mod:start()),
     lists:keystore(module, 1, Config, {module, Mod});
+init_per_group(registrar_local_named, Config) ->
+    lists:keystore(module, 1, Config, {module, registrar_local});
 init_per_group(_GroupName, Config) ->
     Config.
 
@@ -61,10 +63,12 @@ groups() ->
       GeneralTests ++
           [registrar_local_unexpected_msg_case,
            registrar_local_dead_cleanup_case]},
+     {registrar_local_named, [sequence], [different_names_case]},
      {registrar_gproc, [sequence], GeneralTests}].
 
 all() ->
     [{group, registrar_local},
+     {group, registrar_local_named},
      {group, registrar_gproc}].
 
 %%--------------------------------------------------------------------
@@ -139,6 +143,26 @@ double_start_stop_case(Config) ->
     ?assertEqual(ok, Mod:stop()),
     ?assertEqual(ok, Mod:stop()),
     ?assertEqual(ok, Mod:start()),
+    Config.
+
+different_names_case(Config) ->
+    Mod = ?config(module, Config),
+    Self = self(),
+    Msg = {make_ref(), msg},
+    ?assertEqual(ok, Mod:start(registrar1)),
+    ?assertEqual(ok, Mod:start(registrar2)),
+    ?assertEqual(yes, Mod:register_name({Mod, registrar1, ?FUNCTION_NAME}, Self)),
+    ?assertEqual(yes, Mod:register_name({Mod, registrar2, ?FUNCTION_NAME}, Self)),
+    ?assertEqual(Self, Mod:send({Mod, registrar1, ?FUNCTION_NAME}, Msg)),
+    receive
+        Msg -> ?assertEqual(ok, Mod:unregister_name({Mod, registrar1, ?FUNCTION_NAME}))
+    end,
+    ?assertEqual(undefined, Mod:whereis_name({Mod, registrar1, ?FUNCTION_NAME})),
+    ?assertEqual(Self, Mod:send({Mod, registrar2, ?FUNCTION_NAME}, Msg)),
+    receive
+        Msg -> ?assertEqual(ok, Mod:unregister_name({Mod, registrar2, ?FUNCTION_NAME}))
+    end,
+    ?assertEqual(undefined, Mod:whereis_name({Mod, registrar2, ?FUNCTION_NAME})),
     Config.
 
 %%--------------------------------------------------------------------
